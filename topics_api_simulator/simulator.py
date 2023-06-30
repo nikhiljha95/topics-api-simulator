@@ -21,13 +21,18 @@ class Simulator():
         self.z = params["z"]
         self.nepochs = params["nepochs"]
         self.p = params["p"]
-        self.T = params["T"]
+        self.taxonomy = params["taxonomy"]
         self.z = params["z"]
         self.pmin = params["pmin"]
         
         # set the default random number generator
         self.rng = default_rng(seed=seed)
         
+        # assign the correct number of topics
+        if self.taxonomy == 'v1':
+            self.T = 349
+        elif self.taxonomy == 'v2':
+            self.T = 469
         
         # get lambdas based on input parameters
         self.lambdas = get_lambdas(self.df,
@@ -267,7 +272,7 @@ class Simulator():
             # 2: denoised reconstructed user profile
             # one entry for every user which is not anonymous in the website
             unique_profiles1 = [(idx,gw,rw) for idx,(gw,rw,na) in enumerate(zip(gw1, rw1, not_anonymous1)) if na]
-            unique_profiles2 = [(idx,gw,rw) for idx,(gw,rw,na) in enumerate(zip(gw2, rw2, not_anonymous2)) if na]                       
+            unique_profiles2 = [(idx,gw,rw) for idx,(gw,rw,na) in enumerate(zip(gw2, rw2, not_anonymous2)) if na]
             
             # compare non-anonymous users for the two websites
             
@@ -282,7 +287,6 @@ class Simulator():
                 
                 for up2 in unique_profiles2:
         
-
                     # check if the denoised reconstructed profiles are contained 
                     # in the other's global reconstructed profile, and viceversa
                     if up1[2].issubset(up2[1]) and up2[2].issubset(up1[1]):
@@ -311,8 +315,8 @@ class Simulator():
                 # re-identify - hence, don't count
                 if matches <= 1:
                     
-                        tp += tp_temp
-                        fp += fp_temp
+                    tp += tp_temp
+                    fp += fp_temp
 
 
             tps.append(tp/self.nusers)
@@ -403,20 +407,190 @@ class Simulator():
                 # re-identify - hence, don't count
                 if matches == 1:
                     
-                    # continue only if the two users have a sufficient 
-                    # high number of coincident topics
-                    if self.is_temporal_coincidence_high(up1[0],
-                                                             up2[0],
-                                                             exp_topics_history_w1,
-                                                             exp_topics_history_w2,
-                                                             thresh,
-                                                             epoch):
-                    
-                        tp += tp_temp
-                        fp += fp_temp
+                    tp += tp_temp
+                    fp += fp_temp
 
 
             tps.append(tp/self.nusers)
             fps.append(fp/self.nusers)
+
+        return tps, fps
+    
+    
+    def unweighted_hamming_attack(self):
+        
+        self._simulate_if_needed()
+        
+        # get the reconstructed profiles for both websites
+        exp_topics_history_w1 = self.websites[0].get_exposed_topics_history()
+        exp_topics_history_w2 = self.websites[1].get_exposed_topics_history()
+        
+        tps = []
+        fps = []
+        
+        for epoch in range(self.nepochs):
+            tp = 0
+            fp = 0
+            test_users = min([self.nusers, 1000])
+            for up1 in range(exp_topics_history_w1.shape[1])[:test_users]:
+                
+                most_similar_value= -1
+                most_similar_candidates = []
+                
+                for up2 in range(exp_topics_history_w2.shape[1]):
+                    
+                    # consider the number of times in which u1 and u2 expose the same topic
+                    same_exposed_topic = np.equal(exp_topics_history_w1[:epoch+1,up1], exp_topics_history_w2[:epoch+1,up2])
+                    sum_temporal_coincidence = sum(same_exposed_topic)
+                    
+                    if sum_temporal_coincidence >= most_similar_value:
+                        most_similar_value = sum_temporal_coincidence
+                        most_similar_candidates.append(up2)
+                        
+                if up1 == self.rng.choice(most_similar_candidates):
+                    tp += 1
+                else:
+                    fp += 1
+
+            tps.append(tp/test_users)
+            fps.append(fp/test_users)
+
+        return tps, fps
+    
+    
+    def asymmetric_weighted_hamming_attack(self):
+
+        self._simulate_if_needed()
+        
+        # get the reconstructed profiles for both websites
+        exp_topics_history_w1 = self.websites[0].get_exposed_topics_history()
+        exp_topics_history_w2 = self.websites[1].get_exposed_topics_history()
+        
+        topics, counts = np.unique(exp_topics_history_w1, return_counts=True)
+        topic_count_dict = {int(k):v for k,v in zip(topics, counts)}
+        topic_count_w1 = np.array([topic_count_dict.get(k,0) for k in range(self.T)])
+        
+        qin = (1-self.p) / self.z + self.p / self.T
+        qout = self.p / self.T
+        
+        topic_top_k_prob = qin * topic_count_w1 / self.nepochs / self.nusers / (qin-qout)
+        #topic_top_k_prob = (topic_count_w2 - (qout * self.nepochs * self.nusers)) / self.nepochs / self.nusers / (qin-qout)
+        
+        num = qout+ (qin - qout)* qin* topic_top_k_prob
+        den = (qout + (qin - qout) * topic_top_k_prob)
+        
+        match_weight = -np.log(num/den)
+        
+        mismatch_weight = -np.log(
+            qout
+            + (qin - qout)
+            * (self.z - 1)
+            * topic_top_k_prob
+            / (self.z - topic_top_k_prob)
+        )
+        
+        tps = []
+        fps = []
+        
+        for epoch in range(self.nepochs):
+            tp = 0
+            fp = 0
+            
+            test_users = min([self.nusers, 1000])
+            for up1 in range(exp_topics_history_w1.shape[1])[:test_users]:
+                
+                min_distance = np.inf
+                best_candidates = []
+                
+                topic_seq_match_weight = match_weight[exp_topics_history_w1[:epoch+1,up1]]
+                topic_seq_mismatch_weight = mismatch_weight[exp_topics_history_w1[:epoch+1,up1]]
+                
+                for up2 in range(exp_topics_history_w2.shape[1]):
+                    
+                    same_exp_topic = np.equal(exp_topics_history_w1[:epoch+1,up1], exp_topics_history_w2[:epoch+1,up2])
+                    
+                    distance = np.sum(np.where(same_exp_topic, topic_seq_match_weight, topic_seq_mismatch_weight))
+                    
+                    if distance <= min_distance:
+                        min_distance = distance
+                        best_candidates.append(up2)
+                        
+                if up1 == self.rng.choice(best_candidates):
+                    tp += 1
+                else:
+                    fp += 1
+
+            tps.append(tp/test_users)
+            fps.append(fp/test_users)
+
+        return tps, fps
+    
+    
+    
+    
+    def asymmetric_weighted_hamming_attack_v2(self):
+
+        self._simulate_if_needed()
+        
+        # get the reconstructed profiles for both websites
+        exp_topics_history_w1 = self.websites[0].get_exposed_topics_history()
+        exp_topics_history_w2 = self.websites[1].get_exposed_topics_history()
+        
+        topics, counts = np.unique(exp_topics_history_w1, return_counts=True)
+        topic_count_dict = {int(k):v for k,v in zip(topics, counts)}
+        topic_count_w1 = np.array([topic_count_dict.get(k,0) for k in range(self.T)])
+        
+        qin = (1-self.p) / self.z + self.p / self.T
+        qout = self.p / self.T
+        
+        #topic_top_k_prob = qin * topic_count_w2 / self.nepochs / self.nusers / (qin-qout)
+        topic_top_k_prob = (topic_count_w1 - (qout * self.nepochs * self.nusers)) / self.nepochs / self.nusers / (qin-qout)
+        
+        num = qout+ (qin - qout)* qin* topic_top_k_prob
+        den = (qout + (qin - qout) * topic_top_k_prob)
+        
+        match_weight = -np.log(num/den)
+        
+        mismatch_weight = -np.log(
+            qout
+            + (qin - qout)
+            * (self.z - 1)
+            * topic_top_k_prob
+            / (self.z - topic_top_k_prob)
+        )
+        
+        tps = []
+        fps = []
+        
+        for epoch in range(self.nepochs):
+            tp = 0
+            fp = 0
+            
+            test_users = min([self.nusers, 1000])
+            for up1 in range(exp_topics_history_w1.shape[1])[:test_users]:
+                
+                min_distance = np.inf
+                best_candidates = []
+                
+                topic_seq_match_weight = match_weight[exp_topics_history_w1[:epoch+1,up1]]
+                topic_seq_mismatch_weight = mismatch_weight[exp_topics_history_w1[:epoch+1,up1]]
+                
+                for up2 in range(exp_topics_history_w2.shape[1]):
+                    
+                    same_exp_topic = np.equal(exp_topics_history_w1[:epoch+1,up1], exp_topics_history_w2[:epoch+1,up2])
+                    
+                    distance = np.sum(np.where(same_exp_topic, topic_seq_match_weight, topic_seq_mismatch_weight))
+                    
+                    if distance <= min_distance:
+                        min_distance = distance
+                        best_candidates.append(up2)
+                        
+                if up1 == self.rng.choice(best_candidates):
+                    tp += 1
+                else:
+                    fp += 1
+
+            tps.append(tp/test_users)
+            fps.append(fp/test_users)
 
         return tps, fps

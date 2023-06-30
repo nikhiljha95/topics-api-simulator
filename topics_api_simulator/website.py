@@ -93,4 +93,4 @@ class Website():
         # fill a structure containing the topic exposed by users in every epoch
         exp_topics = np.empty((diff.shape[0]-1, diff.shape[1]))
         exp_topics[epoch_users_topics[0], epoch_users_topics[1]] = epoch_users_topics[2]
-        return exp_topics
+        return exp_topics.astype(int)

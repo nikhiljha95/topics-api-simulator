@@ -106,8 +106,8 @@ class Users():
     
     def get_exposed_topics(self):
         """Return the exposed topics"""
-        return np.array(self.exposed_topics)
+        return self.exposed_topics
     
     def get_masks(self):
         """Return the masks"""
-        return np.array(self.masks)
+        return self.masks
