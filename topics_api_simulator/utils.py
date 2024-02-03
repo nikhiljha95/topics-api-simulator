@@ -4,19 +4,22 @@ from scipy.stats import binom
 
 def get_lambdas(df_lambdas, nusers, T, rng, method='original'):
     """Generate the lambdas for a number of users.
-    Three methods are available.
+    Four methods are available.
     
-    The first methods simply uses the lambdas and the number of
+    The original method simply uses the lambdas and the number of
     users present in the dataset.
     
-    The second method  starts from the marginals of i) topics 
+    The iid method  starts from the marginals of i) topics 
     per user and of i) lambdas per topic to infer the topics
     in which the users is intereted, and the average weekly 
     visits.
     
-    The third method consists in performing a dataset 
+    The crossover method consists in performing a dataset 
     augmentation by combining together differnt parent users 
     and create a child user.
+    
+    The average method creates identical users with topic visiting
+    rates as the average rate in the dataset
     
     Input
     -----
@@ -107,7 +110,7 @@ def get_lambdas(df_lambdas, nusers, T, rng, method='original'):
     ################# CROSSOVER METHOD ################
     ###################################################
     
-    elif method=='crossover':
+    elif method == 'crossover':
         
         fathers = rng.choice(df_lambdas, size=nusers)
         mothers = rng.choice(df_lambdas, size=nusers)
@@ -119,6 +122,15 @@ def get_lambdas(df_lambdas, nusers, T, rng, method='original'):
         mask2 = rng.choice(df_lambdas.shape[1])
         
         return combination_lambdas
+    
+    ###################################################
+    ################## AVERAGE METHOD #################
+    ###################################################   
+    
+    elif method == 'average':
+        
+        avg_lambda = df_lambdas.mean(axis=0)
+        return np.tile(avg_lambda,(nusers,1))
         
     else:
         raise ValueError('Unknown method, try either \'original\', '+
@@ -151,7 +163,7 @@ def get_kanon_prob(profiles, kanon):
 
 
 
-def get_threshold(epochs, p, pmin, T, verbose=False):
+def get_threshold(epochs, p, pmin, T, redirects, verbose=False):
     """Return the threshold to choose to limit
     the probability of a topic in the profile being a random topic
     
@@ -163,10 +175,14 @@ def get_threshold(epochs, p, pmin, T, verbose=False):
                   profile exceeds this value, increase the threshold
     T (int): the number of topics
     verbose (bool): whether to show a verbose output
+    
+    Output
+    ------
+    thresh (int): the evaluated threshold
     """
     
-    thresh = 1
-    binomial = binom(epochs+1, p/T)
+    thresh = 2 #minimum threshold
+    binomial = binom((epochs+1)*redirects, p/T)
     
     #probability of a random topic to appear at least thresh times
     prob_repeat_random_topic = 1 - binomial.cdf(thresh-1)

@@ -1,6 +1,6 @@
 # Topics API simulator
 
-This repository contains the code to simulate the behaviour of Google's Topics API, together with some examples. The code backs the results shown in the paper **On the Robustness of Topics API to a Re-Identification Attack** by Nikhil Jha, Martino Trevisan, Emilio Leonardi, and Marco Mellia, to be published in PoPETS and to be presented at PETS 2023.
+This repository contains the code to simulate the behaviour of Google's Topics API, together with some examples. The code backs the results shown in the paper **On the Robustness of Topics API to a Re-Identification Attack** by Nikhil Jha, Martino Trevisan, Emilio Leonardi, and Marco Mellia, [published in PoPETS 2023(4)](https://petsymposium.org/popets/2023/popets-2023-0098.pdf), and extended in a paper currently under review at ACM Transactions on the Web (TWEB).
 
 The package offers several possibilities:
 - To simulate the behaviour of the Topics API, studying how topics are visited, selected, and exposed.
@@ -31,7 +31,9 @@ The entry point to run the simulation is the `Simulator` class, which in turns i
 - Section 4 describes the methods for generating personas from user data;
 - Section 5 and 6 detail the used metrics. Please note that the so-called Loose Attack is not included in the PoPETS paper, and will be considered for future work.
 
-While `examples.ipynb` only tests different values of $k$-anonymity, several other parameters can be tuned to test the behaviourof the Topics API:
+**The listed sections refer to the PoPETS paper. They will be updated when the new work will be published.**
+
+Several parameters can be tuned to test the behaviourof the Topics API:
 
 - `N`: the length of the simulation, in epochs;
 - `nusers`: the number of users in the system;

@@ -8,12 +8,13 @@ class Website():
     Topics API framework
     """
     
-    def __init__(self, nusers, T, p, pmin, wid):
+    def __init__(self, nusers, T, p, pmin, thresh, wid):
         self.nusers = nusers
         self.T = T
         # count of times each user has exposed each topic
         self.topics_counts_per_user = np.array([[[0] * T] * nusers])
         # parameters to calculate the denoising threshold
+        self.thresh = thresh
         self.p = p
         self.pmin = pmin
         self.wid = wid
@@ -56,7 +57,7 @@ class Website():
         
         return last_topics_counts_per_user
     
-    def get_reconstructed_profiles(self, epoch, denoised=True):
+    def get_reconstructed_profiles(self, epoch, redirects, denoising=True):
         """Get Reconstructed Profiles
         
         Input
@@ -72,12 +73,16 @@ class Website():
         # initialize users profiles
         users_profile = [set() for _ in range(self.nusers)]
         # choose the trehsold, 1 if denoising not required
-        if denoised:
-            thresh = get_threshold(epoch, self.p, self.pmin, self.T)
+        if denoising:
+            if self.thresh == 'auto':
+                thresh = get_threshold(epoch, self.p, self.pmin, self.T, redirects)
+            else:
+                thresh = int(self.thresh)
         else:
             thresh = 1
-        #for every topic above threshold, add it to the user profile
-        profile_index = np.argwhere(self.topics_counts_per_user[epoch] >= thresh)
+        
+        #for every topic above threshold, add it to the user profile       
+        profile_index = np.argwhere(self.topics_counts_per_user[epoch * redirects] >= thresh)
         for user, topic in profile_index:
             users_profile[user].add(topic)
         return users_profile
